@@ -1,0 +1,132 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <!-- Version LTS éprouvée. Migrer vers 4.x plus tard si besoin, une fois le MVP stabilisé. -->
+        <version>3.5.5</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.einvoiceguard</groupId>
+    <artifactId>e-invoice-guard</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>e-invoice-guard</name>
+    <description>API de validation et generation de factures electroniques conformes (Factur-X, ZUGFeRD, XRechnung, Peppol BIS 3)</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <!-- Coordonnees verifiees sur Maven Central au 06/09/2026 -->
+        <mustang.version>2.26.0</mustang.version>
+        <mustang-validator.version>2.26.0</mustang-validator.version>
+        <verapdf.version>1.30.2</verapdf.version>
+        <phive.version>8.0.1</phive.version>
+        <phive-rules.version>4.5.5</phive-rules.version>
+        <!-- v2.9.0 = derniere version compatible Spring Boot 3.x (springdoc.org confirme v3.x cible Spring Boot 4) -->
+        <springdoc.version>2.9.0</springdoc.version>
+        <!-- PDFBox : generation du PDF/A-3 visuel (Apache-2.0), verifiee sur Maven Central -->
+        <pdfbox.version>3.0.8</pdfbox.version>
+    </properties>
+
+    <dependencies>
+        <!-- Web REST -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+
+        <!-- Validation des DTO d'entree (tailles, formats obligatoires) -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Cache in-memory pour les rulesets Schematron/XSD precompiles -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-cache</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+        </dependency>
+
+        <!-- Rate limiting applicatif, en complement des quotas RapidAPI -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j-core</artifactId>
+            <version>8.10.1</version>
+        </dependency>
+
+        <!-- Mustang : lecture/ecriture/validation Factur-X, ZUGFeRD, XRechnung (Apache-2.0) -->
+        <dependency>
+            <groupId>org.mustangproject</groupId>
+            <artifactId>library</artifactId>
+            <version>${mustang.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.mustangproject</groupId>
+            <artifactId>validator</artifactId>
+            <version>${mustang-validator.version}</version>
+        </dependency>
+
+        <!-- veraPDF : conformite PDF/A-3 (GPLv3+ ou MPLv2+ au choix) -->
+        <dependency>
+            <groupId>org.verapdf</groupId>
+            <artifactId>validation-model</artifactId>
+            <version>${verapdf.version}</version>
+        </dependency>
+
+        <!-- phive / ph-schematron : moteur de regles Peppol BIS 3 (Apache-2.0) -->
+        <dependency>
+            <groupId>com.helger.phive</groupId>
+            <artifactId>phive-engine</artifactId>
+            <version>${phive.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.helger.phive.rules</groupId>
+            <artifactId>phive-rules-peppol</artifactId>
+            <version>${phive-rules.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.helger.phive.rules</groupId>
+            <artifactId>phive-rules-en16931</artifactId>
+            <version>${phive-rules.version}</version>
+        </dependency>
+
+        <!-- Documentation API interactive (OpenAPI 3 + Swagger UI) -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+
+        <!-- PDFBox : dessine le PDF/A-3 visuel (en-tete, tableau, totaux) avant embarquement du XML -->
+        <dependency>
+            <groupId>org.apache.pdfbox</groupId>
+            <artifactId>pdfbox</artifactId>
+            <version>${pdfbox.version}</version>
+        </dependency>
+
+        <!-- Tests -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

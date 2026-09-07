@@ -1,0 +1,9 @@
+Police : Liberation Sans (Regular, Bold)
+Source : paquet Debian/Ubuntu "fonts-liberation" (developpe a l'origine par Red Hat)
+Licence : SIL Open Font License, Version 1.1 (libre, gratuite)
+Texte de la licence : https://scripts.sil.org/OFL
+
+La licence OFL autorise explicitement l'usage, la modification et
+l'embarquement (font subsetting/embedding) dans des documents generes,
+y compris a des fins commerciales, tant que la police elle-meme n'est
+pas revendue seule sous un autre nom.

@@ -1,0 +1,51 @@
+server:
+  port: 8080
+  # Limite la taille des factures acceptees (PDF/A-3 restent generalement < 5 Mo)
+  max-http-request-header-size: 16KB
+
+spring:
+  application:
+    name: e-invoice-guard
+  servlet:
+    multipart:
+      max-file-size: 10MB
+      max-request-size: 10MB
+  cache:
+    cache-names: rulesets
+    caffeine:
+      # Les rulesets Schematron/XSD sont couteux a compiler : on les garde 6h en memoire.
+      spec: maximumSize=50,expireAfterWrite=6h
+
+logging:
+  level:
+    root: INFO
+    com.einvoiceguard: DEBUG
+  # IMPORTANT (RGPD) : ne jamais logger le contenu des factures elles-memes,
+  # uniquement des identifiants de requete et des codes d'erreur.
+  pattern:
+    console: "%d{HH:mm:ss} %-5level [%X{requestId}] %logger{36} - %msg%n"
+
+einvoiceguard:
+  # Ces valeurs seront lues via un header transmis par RapidAPI (X-RapidAPI-*)
+  rapidapi:
+    proxy-secret-header: X-RapidAPI-Proxy-Secret
+  # Authentification par cle API propre a chaque client (independante du proxy
+  # RapidAPI). Cles valides : variable d'environnement EINVOICEGUARD_API_KEYS
+  # (une ou plusieurs cles separees par des virgules). Vide = pas de controle
+  # (pratique en local/dev).
+  api-key:
+    header-name: X-API-Key
+  rate-limit:
+    # Filet de securite applicatif, en plus des quotas deja geres par RapidAPI
+    requests-per-minute: 120
+
+# Documentation interactive OpenAPI / Swagger UI
+springdoc:
+  swagger-ui:
+    # Accessible sur http://localhost:8080/swagger-ui.html
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+  api-docs:
+    # JSON brut OpenAPI, utile pour importer la collection dans Postman/Insomnia
+    path: /v3/api-docs
