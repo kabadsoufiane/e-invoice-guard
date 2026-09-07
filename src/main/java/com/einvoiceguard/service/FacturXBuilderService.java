@@ -2,18 +2,18 @@ package com.einvoiceguard.service;
 
 import com.einvoiceguard.dto.InvoiceBuildRequest;
 import com.einvoiceguard.exception.InvoiceProcessingException;
-import org.mustangproject.BankDetails;
 import org.mustangproject.Invoice;
 import org.mustangproject.Item;
 import org.mustangproject.Product;
 import org.mustangproject.TradeParty;
 import org.mustangproject.ZUGFeRD.ZUGFeRDExporterFromA1;
+import org.mustangproject.ZUGFeRD.ZUGFeRDImporter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
@@ -53,9 +53,9 @@ public class FacturXBuilderService {
     }
 
     /**
-     * @param request  les donnees metier de la facture (JSON recu par l'API)
-     * @param basePdf  un PDF/A "blanc" deja mis en forme (logo, mentions legales, mise en page) ;
-     *                 c'est dans ce PDF que le XML structure sera embarque
+     * @param request les donnees metier de la facture (JSON recu par l'API)
+     * @param basePdf un PDF/A "blanc" deja mis en forme (logo, mentions legales, mise en page) ;
+     *                c'est dans ce PDF que le XML structure sera embarque
      */
     public byte[] buildFacturX(InvoiceBuildRequest request, byte[] basePdf) {
         try {
@@ -80,29 +80,62 @@ public class FacturXBuilderService {
                 invoice.addItem(item);
             }
 
-            // Chainage volontairement eclate : setProducer/setCreator/ignorePDFAErrors
-            // sont heritees de ZUGFeRDExporterFromA3 et renvoient ce type parent,
-            // pas ZUGFeRDExporterFromA1 - les chainer ensemble casserait la compilation.
-            ZUGFeRDExporterFromA1 exporter = new ZUGFeRDExporterFromA1();
-            exporter.setProducer("E-Invoice Guard");
-            exporter.setCreator("E-Invoice Guard API");
-            exporter.setProfile(request.profile()); // "MINIMUM" | "BASIC" | "EN16931" | "EXTENDED"
-            exporter.ignorePDFAErrors(); // le PDF de base fourni par le client n'est pas toujours un PDF/A strict
-
-            exporter.load(basePdf);
-            exporter.setTransaction(invoice);
-
-            ByteArrayOutputStream output = new ByteArrayOutputStream();
-            exporter.export(output);
-            exporter.close();
-
-            log.info("Facture Factur-X generee pour {}, profil {}", request.invoiceNumber(), request.profile());
-            return output.toByteArray();
+            return export(invoice, request.profile(), basePdf);
+        } catch (InvoiceProcessingException ex) {
+            throw ex;
         } catch (Exception ex) {
             log.warn("Echec de generation de la facture Factur-X", ex);
             throw new InvoiceProcessingException(
                     "Impossible de generer la facture : verifiez les champs obligatoires et le PDF de base fourni.", ex);
         }
+    }
+
+    /**
+     * Convertit une facture Factur-X/ZUGFeRD existante vers un autre profil
+     * (voir POST /v1/convert). Le PDF source sert lui-meme de gabarit visuel :
+     * on en extrait l'objet metier Invoice via mustangproject (ZUGFeRDImporter
+     * sait deja reconstruire un Invoice a partir du XML CII embarque), puis on
+     * reexporte ce meme PDF avec le profil cible demande.
+     *
+     * Contrairement a buildFacturX(request, basePdf), aucune donnee metier
+     * n'est fournie par l'appelant ici : tout provient du document source.
+     */
+    public byte[] convertProfile(byte[] sourcePdf, String targetProfile) {
+        try {
+            ZUGFeRDImporter importer = new ZUGFeRDImporter(new ByteArrayInputStream(sourcePdf));
+            Invoice invoice = new Invoice(importer);
+
+            byte[] converted = export(invoice, targetProfile, sourcePdf);
+            log.info("Facture convertie vers le profil {}", targetProfile);
+            return converted;
+        } catch (InvoiceProcessingException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            log.warn("Echec de conversion de profil Factur-X", ex);
+            throw new InvoiceProcessingException(
+                    "Impossible de convertir la facture : PDF source illisible ou non reconnu comme Factur-X/ZUGFeRD.", ex);
+        }
+    }
+
+    /**
+     * Chainage volontairement eclate : setProducer/setCreator/ignorePDFAErrors
+     * sont heritees de ZUGFeRDExporterFromA3 et renvoient ce type parent,
+     * pas ZUGFeRDExporterFromA1 - les chainer ensemble casserait la compilation.
+     */
+    private byte[] export(Invoice invoice, String profile, byte[] basePdf) throws Exception {
+        ZUGFeRDExporterFromA1 exporter = new ZUGFeRDExporterFromA1();
+        exporter.setProducer("E-Invoice Guard");
+        exporter.setCreator("E-Invoice Guard API");
+        exporter.setProfile(profile); // "MINIMUM" | "BASIC" | "EN16931" | "EXTENDED"
+        exporter.ignorePDFAErrors(); // le PDF de base fourni par le client n'est pas toujours un PDF/A strict
+
+        exporter.load(basePdf);
+        exporter.setTransaction(invoice);
+
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        exporter.export(output);
+        exporter.close();
+        return output.toByteArray();
     }
 
     private Date parseDate(String isoDate) {

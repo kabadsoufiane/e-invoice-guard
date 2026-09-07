@@ -10,6 +10,9 @@ La facturation électronique devient obligatoire pour les entreprises française
 
 - **Valider** un PDF Factur-X/ZUGFeRD existant et obtenir un verdict détaillé (pas juste vrai/faux : quel profil, quel format, quelles erreurs précises).
 - **Générer** une facture Factur-X conforme à partir d'un simple JSON métier (numéro, parties, lignes, montants) — le PDF visuel et le XML structuré sont produits et assemblés automatiquement.
+- **Convertir** une facture existante vers un autre profil Factur-X.
+- **Pré-valider** SIRET/SIREN et TVA française avant transmission.
+- **Traiter en masse** plusieurs factures en une seule requête.
 - **Tracer** la version des règles de validation utilisées, pour l'auditabilité.
 
 ## Sommaire
@@ -19,6 +22,10 @@ La facturation électronique devient obligatoire pour les entreprises française
 - [Endpoints](#endpoints)
   - [POST /v1/build/facturx](#post-v1buildfacturx)
   - [POST /v1/validate/pdf](#post-v1validatepdf)
+  - [POST /v1/validate](#post-v1validate)
+  - [POST /v1/convert](#post-v1convert)
+  - [POST /v1/prevalidate/fr](#post-v1prevalidatefr)
+  - [POST /v1/validate/batch](#post-v1validatebatch)
   - [GET /v1/rulesets](#get-v1rulesets)
 - [Gestion des erreurs](#gestion-des-erreurs)
 - [Exemples prêts à l'emploi](#exemples-prêts-à-lemploi)
@@ -145,6 +152,154 @@ curl -X POST https://VOTRE_INSTANCE/v1/validate/pdf \
 
 Si le document n'est pas conforme, `valid` passe à `false` et `errors` liste chaque anomalie (`ruleId`, `severity`, `message`, `xpath`, `line` quand disponibles). Un fichier illisible ou qui n'est pas un PDF renvoie également `valid: false` avec une erreur `FATAL`.
 
+### POST /v1/validate
+
+Valide directement un JSON métier de facture, sans générer de PDF. Applique exactement les mêmes règles de validation que `/v1/build/facturx` (TVA, dates, devise, profil, lignes), mais sans consommer le coût de génération PDF. Utile pour un contrôle rapide côté client avant l'appel coûteux de génération.
+
+**Corps de la requête** (`application/json`) : identique à `/v1/build/facturx` (voir ci-dessus).
+
+**Exemple** :
+
+```bash
+curl -X POST https://VOTRE_INSTANCE/v1/validate \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: VOTRE_CLE" \
+  -d '{
+    "invoiceNumber": "FA-2026-0042",
+    "issueDate": "2026-09-06",
+    "sellerName": "Kabad Digital Services",
+    "sellerVatNumber": "FR12345678901",
+    "buyerName": "Client Test SARL",
+    "buyerVatNumber": "FR98765432109",
+    "currency": "EUR",
+    "profile": "EN16931",
+    "lines": [
+      {"description": "Prestation de developpement backend", "quantity": 5, "unitPrice": 450.00, "vatRate": 20}
+    ]
+  }'
+```
+
+**Réponse** (`200 OK`) :
+
+```json
+{
+  "valid": true,
+  "detectedProfile": "EN16931",
+  "detectedFormat": "CII",
+  "errors": [],
+  "warnings": []
+}
+```
+
+**Réponses d'erreur** : `400 Bad Request` si un ou plusieurs champs sont invalides (même structure détaillée que pour `/v1/build/facturx`).
+
+### POST /v1/convert
+
+Convertit une facture Factur-X/ZUGFeRD existante vers un autre profil (ex. `BASIC` vers `EN16931`). Le PDF source sert lui-même de gabarit visuel : les données métier sont extraites du XML CII déjà embarqué, puis réinjectées dans un nouveau PDF/A-3 conforme au profil cible.
+
+**Corps de la requête** (`multipart/form-data`) :
+
+| Champ | Type | Description |
+|---|---|---|
+| `file` | fichier | Le PDF Factur-X/ZUGFeRD source (10 Mo max) |
+| `targetProfile` | string | Le profil cible : `MINIMUM`, `BASIC`, `EN16931` ou `EXTENDED` |
+
+**Exemple** :
+
+```bash
+curl -X POST https://VOTRE_INSTANCE/v1/convert \
+  -H "X-API-Key: VOTRE_CLE" \
+  -F "file=@facture-basic.pdf" \
+  -F "targetProfile=EN16931" \
+  --output facture-en16931.pdf
+```
+
+**Réponse en cas de succès** : `200 OK`, `Content-Type: application/pdf`, PDF/A-3 regenere dans le profil cible.
+
+**Réponses d'erreur** :
+- `400 Bad Request` : profil cible invalide.
+- `422 Unprocessable Entity` : PDF source illisible ou non reconnu comme Factur-X/ZUGFeRD.
+
+### POST /v1/prevalidate/fr
+
+Pré-validation spécifique France : vérifie le format et la clé de contrôle (algorithme de Luhn) d'un SIRET/SIREN, ainsi que la cohérence syntaxique d'un numéro de TVA intracommunautaire français, avant transmission de la facture. Vérification syntaxique uniquement (pas d'appel à l'API INSEE Sirene ni au service VIES européen).
+
+**Corps de la requête** (`application/json`) :
+
+| Champ | Type | Obligatoire | Description |
+|---|---|---|---|
+| `siret` | string | non* | SIRET/SIREN à vérifier (14 chiffres) |
+| `vatNumber` | string | non* | Numéro de TVA à vérifier (ex. `FR12345678901`) |
+
+\* Au moins un des deux champs doit être fourni.
+
+**Exemple** :
+
+```bash
+curl -X POST https://VOTRE_INSTANCE/v1/prevalidate/fr \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: VOTRE_CLE" \
+  -d '{"siret": "73282932000074", "vatNumber": "FR12345678901"}'
+```
+
+**Réponse** (`200 OK`) :
+
+```json
+{
+  "valid": true,
+  "siret": {
+    "value": "73282932000074",
+    "valid": true,
+    "message": "SIRET valide (14 chiffres, cle de controle Luhn correcte)."
+  },
+  "vatNumber": {
+    "value": "FR12345678901",
+    "valid": true,
+    "message": "Numero de TVA syntaxiquement valide (format europeen standard)."
+  },
+  "warnings": []
+}
+```
+
+**Réponses d'erreur** : `422 Unprocessable Entity` si ni `siret` ni `vatNumber` ne sont fournis.
+
+### POST /v1/validate/batch
+
+Valide plusieurs PDF Factur-X/ZUGFeRD en une seule requête (traitement par lot). Chaque fichier est validé indépendamment : un fichier illisible ou non conforme n'interrompt pas le traitement des autres. Limite : 50 fichiers par requête.
+
+**Corps de la requête** (`multipart/form-data`) :
+
+| Champ | Type | Description |
+|---|---|---|
+| `files` | fichiers (multiple) | Les PDF à valider (10 Mo max par fichier, 50 fichiers max) |
+
+**Exemple** :
+
+```bash
+curl -X POST https://VOTRE_INSTANCE/v1/validate/batch \
+  -H "X-API-Key: VOTRE_CLE" \
+  -F "files=@facture1.pdf" \
+  -F "files=@facture2.pdf" \
+  -F "files=@facture3.pdf" | jq
+```
+
+**Réponse** (`200 OK`) :
+
+```json
+[
+  {
+    "filename": "facture1.pdf",
+    "result": {"valid": true, "detectedProfile": "EN16931", "detectedFormat": "CII", "errors": [], "warnings": []}
+  },
+  {
+    "filename": "facture2.pdf",
+    "result": {"valid": false, "detectedProfile": "UNKNOWN", "detectedFormat": "UNKNOWN", "errors": [{"ruleId": "IRRECOVERABLE", "severity": "FATAL", "message": "Fichier illisible", "xpath": null, "line": null}], "warnings": []}
+  }
+]
+```
+
+**Réponses d'erreur** : `400 Bad Request` si aucun fichier n'est envoyé ou si le lot dépasse 50 fichiers.
+
 ### GET /v1/rulesets
 
 Renvoie la version des jeux de règles de validation actuellement actifs (utile pour la traçabilité d'audit : savoir quelle version des règles EN 16931 / Peppol a validé une facture donnée).
@@ -157,7 +312,7 @@ Réponse (`200 OK`, texte brut) : `"EN16931-2025.1 / PEPPOL-BIS3-2026.05"`
 
 ## Gestion des erreurs
 
-Toute erreur de validation métier sur `/v1/build/facturx` renvoie `400 Bad Request` avec une structure détaillée par champ :
+Toute erreur de validation métier sur `/v1/build/facturx` ou `/v1/validate` renvoie `400 Bad Request` avec une structure détaillée par champ :
 
 ```json
 {
@@ -178,7 +333,7 @@ Toute erreur de validation métier sur `/v1/build/facturx` renvoie `400 Bad Requ
 }
 ```
 
-Chaque entrée de `details` identifie précisément le champ fautif (y compris l'index de ligne, ex. `lines[0].quantity`), le message d'erreur, et la valeur rejetée — pas besoin de deviner quel champ poser problème.
+Chaque entrée de `details` identifie précisément le champ fautif (y compris l'index de ligne, ex. `lines[0].quantity`), le message d'erreur, et la valeur rejetée — pas besoin de deviner quel champ pose problème.
 
 | Code HTTP | Signification |
 |---|---|
@@ -231,10 +386,10 @@ GET /v3/api-docs
 ## Cas d'usage
 
 - **Éditeurs de logiciels de facturation** : ajouter la conformité Factur-X à un ERP ou logiciel de facturation existant sans réimplémenter le format CII et la génération PDF/A-3.
-- **Plateformes SaaS B2B** : valider automatiquement les factures reçues de fournisseurs avant intégration comptable.
+- **Plateformes SaaS B2B** : valider automatiquement les factures reçues de fournisseurs avant intégration comptable, y compris en masse via `/v1/validate/batch`.
 - **Cabinets d'expertise-comptable** : vérifier en masse la conformité des factures de leurs clients avant la bascule vers la facturation électronique obligatoire.
-- **Marketplaces et places de marché** : générer des factures conformes pour le compte de vendeurs tiers.
-- **Intégrateurs Peppol** : contrôler la conformité EN 16931 avant transmission sur le réseau Peppol.
+- **Marketplaces et places de marché** : générer des factures conformes pour le compte de vendeurs tiers, et les pré-valider (SIRET/TVA) via `/v1/prevalidate/fr`.
+- **Intégrateurs Peppol** : contrôler la conformité EN 16931 avant transmission sur le réseau Peppol, ou convertir un profil existant vers `EN16931` via `/v1/convert`.
 
 ## Documentation interactive
 
@@ -272,7 +427,7 @@ L'application écoute par défaut sur `http://localhost:8080`.
 
 ## Exécuter les tests
 
-La suite de tests couvre les validateurs métier (unitaires), les services de génération/validation PDF (unitaires), et les 3 endpoints de bout en bout (intégration Spring Boot + MockMvc, avec et sans authentification par clé API) :
+La suite de tests couvre les validateurs métier (unitaires), les services de génération/validation/conversion PDF (unitaires), et les 7 endpoints de bout en bout (intégration Spring Boot + MockMvc, avec et sans authentification par clé API) :
 
 ```bash
 mvn test
@@ -284,7 +439,7 @@ mvn test
 |---|---|
 | Spring Boot 3.5 (Java 21) | Serveur d'API REST |
 | Apache PDFBox 3.x | Génération de la mise en page visuelle du PDF (PDF/A-1b, polices embarquées) |
-| mustangproject | Embarquement du XML CII et validation Factur-X/ZUGFeRD (inclut veraPDF pour le contrôle PDF/A-3) |
+| mustangproject | Embarquement du XML CII, conversion de profil et validation Factur-X/ZUGFeRD (inclut veraPDF pour le contrôle PDF/A-3) |
 | Bean Validation (Hibernate Validator) | Validation métier déclarative (TVA, SIRET, dates, montants) |
 | springdoc-openapi | Documentation interactive Swagger UI / OpenAPI |
 | Caffeine | Cache en mémoire pour les rulesets (6h de durée de vie) |
@@ -294,6 +449,10 @@ Le pipeline de génération se déroule en deux temps :
 2. `FacturXBuilderService` (mustangproject) embarque le XML CII structuré dans ce PDF de base pour produire le PDF/A-3 hybride final.
 
 La validation suit le chemin inverse : `FacturXValidationService` extrait le XML embarqué et le profil déclaré, puis délègue le contrôle de conformité EN 16931 / Peppol / PDF-A3 à mustangproject (veraPDF en interne).
+
+La conversion de profil (`/v1/convert`) réutilise `FacturXBuilderService` : le PDF source sert lui-même de gabarit visuel, mustangproject en extrait l'objet métier `Invoice` via le XML CII déjà embarqué, puis réexporte ce même PDF avec le profil cible demandé — sans jamais redemander les données métier à l'appelant.
+
+La pré-validation France (`/v1/prevalidate/fr`) est un service dédié (`FrPrevalidationService`) qui applique les mêmes règles que les validateurs `SiretValidator` et `VatNumberValidator` utilisés par Bean Validation, sans appel réseau externe (ni API INSEE Sirene, ni service VIES).
 
 ## Licences des composants tiers
 
